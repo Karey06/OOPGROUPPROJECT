@@ -1,37 +1,98 @@
-package BookNestApp;
-
 import javax.swing.*;
+import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.awt.event.*;
+import java.util.List;
 
 public class BrowseBooks extends JFrame {
 
+    private final DefaultTableModel bookTableModel;
+    private final JTable bookTable;
+    private final List<Book> books;
+
     public BrowseBooks() {
         setTitle("Browse Books");
-        setSize(400, 300);
+        setSize(800, 500);
         setLocationRelativeTo(null);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setLayout(new BorderLayout());
+        setLayout(new BorderLayout(10, 10));
 
-        JTextArea bookDisplay = new JTextArea();
-        bookDisplay.setEditable(false);
-        bookDisplay.setText(getDummyBooks()); // For now, shows placeholder data
+        // Load books from DB (assumed DatabaseConnection.getAllBooks() exists)
+        books = DatabaseConnection.getAllBooks();
 
-        JScrollPane scrollPane = new JScrollPane(bookDisplay);
+        // Table columns
+        String[] columns = {"ID", "Title", "Author", "Genre", "Category", "Price", "Stock"};
+        bookTableModel = new DefaultTableModel(columns, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) { return false; }
+        };
+
+        // Populate table rows
+        if (books.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "No books available at the moment.", "Info", JOptionPane.INFORMATION_MESSAGE);
+        } else {
+            for (Book b : books) {
+                Object[] row = {
+                        b.getBookId(),
+                        b.getTitle(),
+                        b.getAuthor(),
+                        b.getGenre(),
+                        b.getCategory(),
+                        String.format("$%.2f", b.getPrice()),
+                        b.getStock()
+                };
+                bookTableModel.addRow(row);
+            }
+        }
+
+        bookTable = new JTable(bookTableModel);
+        bookTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+
+        JScrollPane scrollPane = new JScrollPane(bookTable);
         add(scrollPane, BorderLayout.CENTER);
+
+        // Buttons panel
+        JPanel buttonPanel = new JPanel(new FlowLayout());
+
+        JButton refreshBtn = new JButton("Refresh List");
+        JButton closeBtn = new JButton("Close");
+
+        buttonPanel.add(refreshBtn);
+        buttonPanel.add(closeBtn);
+
+        add(buttonPanel, BorderLayout.SOUTH);
+
+        // Button actions
+        refreshBtn.addActionListener(e -> refreshBookList());
+        closeBtn.addActionListener(e -> dispose());
+
+        setVisible(true);
     }
 
-    private String getDummyBooks() {
-        return """
-                1. Introduction to Java - Author: John Doe
-                2. Advanced Python - Author: Jane Smith
-                3. Web Development with HTML & CSS - Author: Alice Brown
-                4. Database Systems - Author: Bob Johnson
-                """;
+    private void refreshBookList() {
+        // Clear current rows
+        bookTableModel.setRowCount(0);
+        List<Book> refreshedBooks = DatabaseConnection.getAllBooks();
+
+        if (refreshedBooks.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "No books available at the moment.", "Info", JOptionPane.INFORMATION_MESSAGE);
+        } else {
+            for (Book b : refreshedBooks) {
+                Object[] row = {
+                        b.getBookId(),
+                        b.getTitle(),
+                        b.getAuthor(),
+                        b.getGenre(),
+                        b.getCategory(),
+                        String.format("$%.2f", b.getPrice()),
+                        b.getStock()
+                };
+                bookTableModel.addRow(row);
+            }
+        }
     }
 
     public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> {
-            new BrowseBooks().setVisible(true);
-        });
+        SwingUtilities.invokeLater(BrowseBooks::new);
     }
 }

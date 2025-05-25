@@ -1,109 +1,164 @@
+
+
+import java.sql.*;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicLong;
 
 public class Order {
-    public static class Book {
-        private final String title;
-        private final String author;
-        private final double price;
-
-        public Book(String title, String author, double price) {
-            this.title = title;
-            this.author = author;
-            this.price = price;
-        }
-
-        public double getPrice() { return price; }
-
-        @Override
-        public String toString() {
-            return String.format("'%s' by %s ($%.2f)", title, author, price);
-        }
-    }
-    public static class Customer {
-        private final String name;
-        private final String email;
-
-        public Customer(String name, String email) {
-            this.name = name;
-            this.email = email;
-        }
-
-        public String getName() { return name; }
-
-        @Override
-        public String toString() {
-            return String.format("%s (%s)", name, email);
-        }
-    }
 
     public enum OrderStatus {
         PENDING,
         PROCESSING,
         SHIPPED,
         DELIVERED,
-        CANCELLED
-    }
-    private static final AtomicLong idCounter = new AtomicLong(System.currentTimeMillis()); // Unique starting point
-    private final long orderId;
-    private final Customer customer;
-    private final List<Book> orderedBooks;
-    private final LocalDateTime orderDate;
-    private final String shippingAddress;
-    private final double totalPrice;
-    private OrderStatus status;
+        CANCELLED;
 
-    public Order(Customer customer, List<Book> orderedBooks, String shippingAddress) {
-        if (customer == null || orderedBooks == null || orderedBooks.isEmpty()) {
-            throw new IllegalArgumentException("Customer and book list cannot be null or empty.");
+        // Convert DB string to enum (case-insensitive)
+        public static OrderStatus fromString(String status) {
+            return OrderStatus.valueOf(status.toUpperCase());
         }
-        this.orderId = idCounter.incrementAndGet();
-        this.customer = customer;
-        this.orderedBooks = orderedBooks;
+    }
+
+    private int orderId;  // from DB, auto-increment
+    private int customerId;
+    private LocalDateTime orderDate;
+    private OrderStatus status;
+    private String shippingAddress;
+
+    private List<OrderItem> orderItems;
+
+    public Order(int customerId, String shippingAddress) {
+        this.customerId = customerId;
         this.shippingAddress = shippingAddress;
         this.orderDate = LocalDateTime.now();
-        this.status = OrderStatus.PENDING; // Default status
-        this.totalPrice = orderedBooks.stream().mapToDouble(Book::getPrice).sum();
+        this.status = OrderStatus.PENDING;
+        this.orderItems = new ArrayList<>();
+    }
+
+    // Getters and setters
+    public int getOrderId() { return orderId; }
+    public void setOrderId(int orderId) { this.orderId = orderId; }
+
+    public int getCustomerId() { return customerId; }
+    public LocalDateTime getOrderDate() { return orderDate; }
+    public OrderStatus getStatus() { return status; }
+    public void setStatus(OrderStatus status) { this.status = status; }
+    public String getShippingAddress() { return shippingAddress; }
+    public void setShippingAddress(String shippingAddress) { this.shippingAddress = shippingAddress; }
+    public List<OrderItem> getOrderItems() { return orderItems; }
+
+    // Add a book to the order with quantity
+    public void addOrderItem(int bookId, int quantity, double price) {
+        orderItems.add(new OrderItem(bookId, quantity, price));
+    }
+
+    // Calculate total price of the order
+    public double getTotalPrice() {
+        return orderItems.stream()
+                .mapToDouble(item -> item.getPrice() * item.getQuantity())
+                .sum();
+    }
+
+    // Save order and items to DB
+    public boolean saveOrder() {
+        String insertOrderSQL = "INSERT INTO orders (customer_id, order_date, status) VALUES (?, ?, ?)";
+        String insertOrderItemSQL = "INSERT INTO order_items (order_id, book_id, quantity, price) VALUES (?, ?, ?, ?)";
+
+        try (Connection conn = DatabaseConnection.getConnection()) {
+            conn.setAutoCommit(false); // Transaction
+
+            // Insert into orders table
+            try (PreparedStatement psOrder = conn.prepareStatement(insertOrderSQL, Statement.RETURN_GENERATED_KEYS)) {
+                psOrder.setInt(1, customerId);
+                psOrder.setTimestamp(2, Timestamp.valueOf(orderDate));
+                psOrder.setString(3, status.name());
+
+                int affectedRows = psOrder.executeUpdate();
+                if (affectedRows == 0) {
+                    conn.rollback();
+                    return false;
+                }
+
+                try (ResultSet generatedKeys = psOrder.getGeneratedKeys()) {
+                    if (generatedKeys.next()) {
+                        this.orderId = generatedKeys.getInt(1);
+                    } else {
+                        conn.rollback();
+                        return false;
+                    }
+                }
+            }
+
+            // Insert order items
+            try (PreparedStatement psItem = conn.prepareStatement(insertOrderItemSQL)) {
+                for (OrderItem item : orderItems) {
+                    psItem.setInt(1, orderId);
+                    psItem.setInt(2, item.getBookId());
+                    psItem.setInt(3, item.getQuantity());
+                    psItem.setDouble(4, item.getPrice());
+                    psItem.addBatch();
+                }
+                psItem.executeBatch();
+            }
+
+            conn.commit();
+            return true;
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+            return false;
+        }
     }
 
     public void shipOrder() {
-        if (this.status == OrderStatus.PENDING || this.status == OrderStatus.PROCESSING) {
-            this.status = OrderStatus.SHIPPED;
+        if (status == OrderStatus.PENDING || status == OrderStatus.PROCESSING) {
+            status = OrderStatus.SHIPPED;
         }
     }
 
     public void cancelOrder() {
-        if (this.status == OrderStatus.PENDING) {
-            this.status = OrderStatus.CANCELLED;
+        if (status == OrderStatus.PENDING) {
+            status = OrderStatus.CANCELLED;
         }
     }
-
-
-    public long getOrderId() { return orderId; }
-    public OrderStatus getStatus() { return status; }
-    public double getTotalPrice() { return totalPrice; }
-    public Customer getCustomer() { return customer; }
-
 
     @Override
     public String toString() {
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
         StringBuilder sb = new StringBuilder();
         sb.append("================ ORDER SUMMARY ================\n");
-        sb.append(String.format(" ID: %d       Status: %s\n", orderId, status));
-        sb.append(String.format(" Date: %s\n", orderDate.format(formatter)));
-        sb.append(String.format(" Customer: %s\n", customer.getName()));
-        sb.append(String.format(" Ship To: %s\n", shippingAddress));
+        sb.append(String.format("ID: %d     Status: %s\n", orderId, status));
+        sb.append(String.format("Date: %s\n", orderDate.format(formatter)));
+        sb.append(String.format("Customer ID: %d\n", customerId));
+        sb.append(String.format("Ship To: %s\n", shippingAddress));
         sb.append("---------------------------------------------\n");
-        sb.append(" Books:\n");
-        for (Book book : orderedBooks) {
-            sb.append(String.format("   - %s\n", book));
+        sb.append("Books:\n");
+        for (OrderItem item : orderItems) {
+            sb.append(String.format(" - Book ID: %d | Quantity: %d | Price each: $%.2f\n",
+                    item.getBookId(), item.getQuantity(), item.getPrice()));
         }
         sb.append("---------------------------------------------\n");
-        sb.append(String.format(" TOTAL: $%.2f\n", totalPrice));
+        sb.append(String.format("TOTAL: $%.2f\n", getTotalPrice()));
         sb.append("=============================================\n");
         return sb.toString();
+    }
+
+    // Inner class for order items
+    public static class OrderItem {
+        private final int bookId;
+        private final int quantity;
+        private final double price;
+
+        public OrderItem(int bookId, int quantity, double price) {
+            this.bookId = bookId;
+            this.quantity = quantity;
+            this.price = price;
+        }
+
+        public int getBookId() { return bookId; }
+        public int getQuantity() { return quantity; }
+        public double getPrice() { return price; }
     }
 }
