@@ -65,6 +65,7 @@ public class CustomerRegistration extends JFrame {
 
             JOptionPane.showMessageDialog(this, "Registration successful! You can now login.");
             dispose();
+            new LoginScreen().setVisible(true);
         } catch (SQLException e) {
             if (e.getMessage().contains("Duplicate entry")) {
                 JOptionPane.showMessageDialog(this, "Email already registered. Try logging in.");
