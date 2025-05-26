@@ -45,8 +45,16 @@ public class CustomerDashboard extends JFrame {
         JButton buyButton = new JButton("Buy Selected Book");
         buyButton.addActionListener(e -> buySelectedBook());
 
+        JButton logoutButton = new JButton("Logout");
+        logoutButton.addActionListener(e -> {
+            dispose(); // Close the dashboard
+            JOptionPane.showMessageDialog(null, "You have been logged out.");
+            // Optionally, you can redirect to login screen here
+        });
+
         JPanel bottomPanel = new JPanel();
         bottomPanel.add(buyButton);
+        bottomPanel.add(logoutButton);
         add(bottomPanel, BorderLayout.SOUTH);
 
         setVisible(true);
