@@ -33,7 +33,7 @@ public class LoginScreen extends JFrame {
 
         registerButton = new JButton("Register (Customer)");
         registerButton.addActionListener(e -> {
-            new CustomerRegistration();
+            new LoginScreen().setVisible(true);
             dispose();
         });
         add(new JLabel());
